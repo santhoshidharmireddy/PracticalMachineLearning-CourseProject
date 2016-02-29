@@ -1,0 +1,156 @@
+---
+title: "CourseProject"
+author: "Santhoshi Dharmireddi"
+output:
+  html_document:
+    keep_md: yes
+  pdf_document: default
+  word_document: default
+---
+##Overview
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+##Data
+
+The training data for this project are available here:
+
+(https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv)
+
+The test data are available here:
+
+(https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv)
+
+The data for this project come from this source: (http://groupware.les.inf.puc-rio.br/har). If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment.
+
+##What you should submit
+
+The goal of your project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases.
+
+##Loading the required packages
+```{r chunk1}
+library(knitr)
+library(caret)
+library(rattle)
+library(randomForest)
+library(rpart.plot)
+opts_chunk$set(echo=TRUE)
+```
+
+##Loading the required data
+```{r chunk2}
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", destfile = "pmltraining.csv")
+
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", destfile = "pmltesting.csv")
+
+pmltrain<- read.csv("pmltraining.csv", sep=",", na.strings = c("","NA"))
+test<- read.csv("pmltesting.csv", sep= ",", na.strings = c("","NA"))
+dim(pmltrain)
+dim(test)
+```
+
+##Cleaning the Data
+
+Now I am going to reduce the number of features by removing the variables that are almost always NA, variables with nearly zero variance, and variables that don't make any intuitive sense for prediction. 
+```{r chunk3}
+#remove variables which are almost always NAs
+NAs<- sapply(pmltrain, function(x) mean(is.na(x))) > 0.95
+pmltrain1<- pmltrain[,NAs == F]
+
+#remove the values with nearly zero variance
+nzv<- nearZeroVar(pmltrain1)
+pmltrain1<- pmltrain1[,-nzv]
+
+#remove the variabels which don't make any intuitive sense for prediction. That means remove the first 5 variables
+pmltrain1<- pmltrain1[,-(1:5)]
+```
+
+Now I want to randomly split the full pmltrain1 data into a smaller training set (traindata) and a test set (testdata).
+
+```{r chunk4}
+set.seed(123)
+intrain<- createDataPartition(pmltrain1$classe, p=0.6, list = F)
+traindata<- pmltrain1[intrain, ]
+testdata<- pmltrain1[-intrain, ]
+```
+
+##Algorithm Selection
+
+First, I would like to use 3-fold cross validation process to select the optimal tuning parameters for the model. Second, I would like to go with random Forest model to see whether it is an acceptable model.
+```{r chunk5}
+#appply 3-fold cross validation method on traindata to select the optimal tuning parameters
+fitCVmethod<- trainControl(method = "cv", number = 3, verboseIter = F)
+#fit model on traindata set
+fitmodel<- train(classe ~ ., method = "rf", data = traindata, trControl = fitCVmethod)
+
+#Print final model to see which tuning parameters it chose
+fitmodel$finalModel
+```
+
+From the above output, we can say that it decided to use 500 trees and try 27 variables at each split.
+
+##Algorithm Evaluation
+
+Inorder to evaluate the model, now we have to use fitted model to predict the "classe" label in testdata.
+Also, show the confusion matrix to compare the predicted versus actual labels.
+
+```{r chunks6}
+#Now use fitted moel to predict the classe label in testdata set.
+preds<- predict(fitmodel, newdata = testdata)
+
+#Show the confusion matrix to compare the predicted versus actual labels
+confusionMatrix(testdata$classe, preds)
+```
+
+From the above confusion matrix output, we can say that the model accuracy is 99.83% and my predicted accuracy for the out-of-sample error is 0.2%.
+Since this model has an excellent result, I will use Random Forests model to predict on the test set.
+
+## Re-fitting algorithm on full training data
+
+In order to produce the most accurate predictions, it is good to train the model on full training data instead of using a model that trained on small amount of training data. So, now I am going to fit this model on full training data.
+Before training the model on both full training data and test data, we have to clean up the test data as well.
+
+```{r chunks7}
+#remove variables which are almost always NAs
+NAs<- sapply(test, function(x) mean(is.na(x))) > 0.95
+pmltest<- test[,NAs == F]
+
+#remove the values with nearly zero variance
+nzv<- nearZeroVar(pmltest)
+pmltest<- pmltest[,-nzv]
+
+#remove the variabels which don't make any intuitive sense for prediction. That means remove the first 5 variables
+pmltest<- pmltest[,-(1:5)]
+
+#re-fit model using the full traing set (pmltrain1)
+fitCVmethod1<- trainControl(method = "cv", number = 3, verboseIter = F)
+fitmodel1<- train(classe ~ ., method = "rf", data = pmltrain1, trControl = fitCVmethod1)
+preds1<- predict(fitmodel1, newdata=pmltest)
+```
+
+## Test Set Predictions - Generating files to submit as answers for the assignment:
+
+Finally, use the above algorithm to predict the labels for the observations in pmltest. Also, write those predictions to individual files.
+
+```{r chunks8}
+#prediction on test data set
+preds1<- predict(fitmodel1, newdata=pmltest)
+#create a function to write predictions to files
+
+pml_write_files<- function(x){
+  n<- length(x)
+  for(i in 1:n){
+   filename<- paste0("problem_id_",i,".txt")
+   write.table(x[i],file=filename,row.names = F, col.names = F, quote = F)
+  
+  }
+}
+
+pml_write_files(preds1)
+```
+
+
+
+
+
+
